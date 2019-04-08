@@ -72,7 +72,6 @@ unsigned int timer0Counter=0;
 unsigned char USARTCounter=0;//
 unsigned char secondCounter=0;
 unsigned char minutesCounter=0;
-char USARTReciveEnd=0;
 unsigned int currentValue=0;
 struct minutePoint currentMinute;
 int currentCommand=COMMAND_NO_COMMAND;
@@ -84,6 +83,8 @@ int main(void)
 {
 	configuration();
     /* Replace with your application code */
+	minutesCounter=10;
+	prepareDataPacket();
     while (1){
 		switch(currentCommand){
 			case(COMMAND_REPORT):{
@@ -112,7 +113,7 @@ void configureUART(){
 }
 ////////////////////////////////////////////////////////////////////////
 void configurationGPIO(){
-	DDRB|=(1<<PORTB1);
+	DDRB|=(1<<PORTB1)|(1<<PORTB2);
 	PORTB|=(1<<PORTB1);
 	DDRC|=(1<<PORTC4);//переключение вход/выход преобразователя
 	PORTC|=(1<<PORTC4);
@@ -135,16 +136,17 @@ void configurationINTS(){
 }
 /////////////////////////////////////////////////////////////////////////////////
 ISR(USART_RX_vect){
+	PORTB^=(1<<PORTB1);
 	USARTInputArray[USARTCounter]=UDR0;	
 	USARTCounter++;	
 	if(USARTInputArray[0]==USARTCounter){
-		USARTReciveEnd=1;
 		USARTCounter=0;
 		decodePacket();	
 	}
-	else if(USARTInputArray>10){
-		USARTReciveEnd=1;
+	else if(USARTCounter>9){//размер пакета не может быть больше 10 байт
+		USARTCounter=0;
 	}
+	
 }
 ////////////////////////////////////////////////////////////
 ISR(USART_TX_vect){
@@ -171,7 +173,7 @@ ISR(TIMER0_OVF_vect){
 			if(minutesCounter==60){//если массив не запрошен в течении часа, то начинаем с начала
 				minutesCounter=0;
 			}
-			currentMinute.value=136;//currentValue;
+			currentMinute.value=currentValue;//136
 			currentMinute.event=EVENT_OK;
 			currentValue=0;
 			minutesArray[minutesCounter]=currentMinute;
@@ -183,15 +185,18 @@ ISR(TIMER0_OVF_vect){
 ///////////////////////////////////////////////////////////////
 ISR(INT0_vect){
 	currentValue++;
+	//PORTB^=(1<<PORTB1);
 }
 /////////////////////////////////////////////////////////////////
 void decodePacket(){
+	
 	if(USARTInputArray[1]==ADDRESS){
+		PORTB^=(1<<PORTB2);
 		unsigned char size=USARTInputArray[0];
 		unsigned char crc=CRC16(USARTInputArray,size-1);
 		if(crc==USARTInputArray[size-1]){
 			switch(USARTInputArray[2]){//3-й байт - команда	
-				case(REQUEST_GET_DATA):{
+				case(REQUEST_GET_DATA):{		
 					if(minutesCounter!=0){
 						prepareDataPacket();
 					}
@@ -215,9 +220,6 @@ void decodePacket(){
 		}
 		currentCommand=COMMAND_REPORT;
 	}
-	else{
-		PORTB|=(1<<PORTB1);
-	}
 }
 ///////////////////////////////////////////////////////////////////////////
 unsigned char CRC16(unsigned char *pcBlock, unsigned short len){
@@ -234,20 +236,21 @@ unsigned char CRC16(unsigned char *pcBlock, unsigned short len){
 //////////////////////////////////////////////////////////////////////
 void prepareDataPacket(){
 	TCCR0B&=(~(1<<CS00))&(~(1<<CS02));//останавливаем таймер
-	unsigned char size=minutesCounter*3+4;//количество минут+размер+CRC16+ответ
+	unsigned char size=minutesCounter*3+5;//количество минут+адрес+размер+CRC16+ответ
 	reportsArray[0]=size;//размер пакета
-	reportsArray[1]=(unsigned char)ANSWER_OK;
-	reportsArray[2]=minutesCounter;//количество минут в пакете
+	reportsArray[1]=ADDRESS;//Вторым байтом всегда идет адрес
+	reportsArray[2]=(unsigned char)ANSWER_OK;
+	reportsArray[3]=minutesCounter;//количество минут в пакете
 	
 	int n=0;
 	for(n=0;n!=minutesCounter;n++){
-		int offset=n*3+3;
+		int offset=n*3+4;
 		reportsArray[offset]=(unsigned char)minutesArray[n].value;
 		reportsArray[offset+1]=(unsigned char)minutesArray[n].value>>8;
 		reportsArray[offset+2]=currentMinute.event;
 	}
 	unsigned char crc=CRC16(reportsArray,size-1);
-	reportsArray[3+n*3]=crc;
+	reportsArray[4+n*3]=crc;
 	//все обнуляем
 	USARTCounter=0;
 	reportsCounter=0;
@@ -255,31 +258,33 @@ void prepareDataPacket(){
 }
 /////////////////////////////////////////////////////////////////////////
 void prepareErrorPacket(){
-	unsigned char size=3;//размер+ответ+CRC
+	unsigned char size=4;//размер+адрес+ответ+CRC
 	reportsArray[0]=size;//размер пакета
-	reportsArray[1]=(unsigned char)ANSWER_ERROR;
+	reportsArray[1]=ADDRESS;//Вторым байтом всегда идет адрес
+	reportsArray[2]=(unsigned char)ANSWER_ERROR;
 	unsigned char crc=CRC16(reportsArray,size-1);
-	reportsArray[2]=crc;
+	reportsArray[3]=crc;
 	reportsCounter=0;
 }
 //////////////////////////////////////////////////////////////////////////
 void prepareNoDataPacket(){
-	unsigned char size=3;//размер+ответ+CRC
+	unsigned char size=4;//размер+адрес+ответ+CRC
 	reportsArray[0]=size;//размер пакета
-	reportsArray[1]=(unsigned char)ANSWER_NO_DATA;
+	reportsArray[1]=ADDRESS;//Вторым байтом всегда идет адрес
+	reportsArray[2]=(unsigned char)ANSWER_NO_DATA;
 	unsigned char crc=CRC16(reportsArray,size-1);
-	reportsArray[2]=crc;
+	reportsArray[3]=crc;
 	reportsCounter=0;
 }
 /////////////////////////////////////////////////////////////////////////
 void prepareClearedPacket(){
-	unsigned char size=3;//размер+ответ+CRC
+	unsigned char size=4;//размер+ответ+CRC
 	reportsArray[0]=size;//размер пакета
-	reportsArray[1]=(unsigned char)ANSWER_CLEARED;
+	reportsArray[1]=ADDRESS;//Вторым байтом всегда идет адрес
+	reportsArray[2]=(unsigned char)ANSWER_CLEARED;
 	unsigned char crc=CRC16(reportsArray,size-1);
-	reportsArray[2]=crc;
+	reportsArray[3]=crc;
 	reportsCounter=0;
-	PORTB&=(~(1<<PORTB1));
 }
 /////////////////////////////////////////////////////////////////////////
 void transmitReport(){
