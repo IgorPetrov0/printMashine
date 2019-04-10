@@ -8,7 +8,7 @@
 #define F_CPU 16000000 // Рабочая частота контроллера
 #define BAUD 9600 // Скорость обмена данными
 #define UBRRL_value (F_CPU/(BAUD*16))-1 //Согластно заданной скорости подсчитываем значение для регистра UBRR
-#define ADDRESS 1 //адрес в сети RS485
+#define ADDRESS 0 //адрес в сети RS485
 
 enum command{
 	COMMAND_REPORT=0,
@@ -81,10 +81,9 @@ unsigned char tmp=0;//для отладки
 ///////////////////////////////////////////////////////////////////////////////////
 int main(void)
 {
+	
 	configuration();
     /* Replace with your application code */
-	minutesCounter=10;
-	prepareDataPacket();
     while (1){
 		switch(currentCommand){
 			case(COMMAND_REPORT):{
@@ -189,7 +188,6 @@ ISR(INT0_vect){
 }
 /////////////////////////////////////////////////////////////////
 void decodePacket(){
-	
 	if(USARTInputArray[1]==ADDRESS){
 		PORTB^=(1<<PORTB2);
 		unsigned char size=USARTInputArray[0];
@@ -241,13 +239,13 @@ void prepareDataPacket(){
 	reportsArray[1]=ADDRESS;//Вторым байтом всегда идет адрес
 	reportsArray[2]=(unsigned char)ANSWER_OK;
 	reportsArray[3]=minutesCounter;//количество минут в пакете
-	
+
 	int n=0;
 	for(n=0;n!=minutesCounter;n++){
 		int offset=n*3+4;
 		reportsArray[offset]=(unsigned char)minutesArray[n].value;
-		reportsArray[offset+1]=(unsigned char)minutesArray[n].value>>8;
-		reportsArray[offset+2]=currentMinute.event;
+		reportsArray[offset+1]=(unsigned char)(minutesArray[n].value>>8);
+		reportsArray[offset+2]=(unsigned char)minutesArray[n].event;
 	}
 	unsigned char crc=CRC16(reportsArray,size-1);
 	reportsArray[4+n*3]=crc;
