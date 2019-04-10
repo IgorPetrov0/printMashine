@@ -129,6 +129,11 @@ void configurationTimers(){
 	TIMSK0|=(1<<TOIE0);
 	TCNT0=230;
 	TCCR0B|=(1<<CS00)|(1<<CS02);
+	
+	TIMSK1|=(1<<TOIE1);
+	TCNT1=0;
+	TCCR1B|=(1<<CS10)|(1<<CS12);//делитель на 1024
+	
 }
 /////////////////////////////////////////////////////////////////////////////////
 void configurationINTS(){
@@ -162,9 +167,6 @@ ISR(USART_RX_vect){
 			break;
 		}
 	}
-	
-	
-	
 }
 ////////////////////////////////////////////////////////////
 ISR(USART_TX_vect){
@@ -181,7 +183,6 @@ ISR(USART_TX_vect){
 }
 /////////////////////////////////////////////////////////////////
 ISR(TIMER0_OVF_vect){
-	
 	TCNT0=230;
 	timer0Counter++;
 	if(timer0Counter==625){
@@ -200,19 +201,21 @@ ISR(TIMER0_OVF_vect){
 		timer0Counter=0;
 	}
 }
+//////////////////////////////////////////////////////////////////////////////////////////////////
+ISR(TIMER1_OVF_vect){
+		
+
+
+}
 ///////////////////////////////////////////////////////////////
 ISR(INT0_vect){
 	currentValue++;
 	//PORTB^=(1<<PORTB1);
 }
 /////////////////////////////////////////////////////////////////
-void decodePacket(){
-<<<<<<< HEAD
-=======
-	
+void decodePacket(){	
 	if(USARTInputArray[1]==ADDRESS){
 		PORTB^=(1<<PORTB2);
->>>>>>> parent of afc22c9... Старый формат пакета с размером в первом байте.
 		unsigned char size=USARTInputArray[0];
 		unsigned char crc=CRC16(USARTInputArray,size-1);
 		if(crc==USARTInputArray[size-1]){
@@ -241,6 +244,7 @@ void decodePacket(){
 			return;
 		}
 		currentCommand=COMMAND_REPORT;
+	}
 }
 ///////////////////////////////////////////////////////////////////////////
 unsigned char CRC16(unsigned char *pcBlock, unsigned short len){
