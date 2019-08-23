@@ -254,8 +254,8 @@ void prepareDataPacket(){
 	int n=0;
 	for(n=0;n!=minutesCounter;n++){
 		int offset=n*3+4;
-		reportsArray[offset]=270;//(unsigned char)minutesArray[n].value;
-		reportsArray[offset+1]=279>>8;//(unsigned char)minutesArray[n].value>>8;
+		reportsArray[offset]=(unsigned char)minutesArray[n].value;
+		reportsArray[offset+1]=(unsigned char)minutesArray[n].value>>8;
 		reportsArray[offset+2]=minutesArray[n].event;
 	}
 	unsigned char crc=CRC16(reportsArray,size-1);
