@@ -5,10 +5,24 @@
  * Author : Игорь
  */ 
 
+/*Порты:
+1 - PB1
+2 - PB0
+3 - PD7
+4 - PD6
+5 - PD5
+6 - PD4
+7 - PD3
+*/
+
+
+
+
 #define F_CPU 16000000 // Рабочая частота контроллера
 #define BAUD 9600 // Скорость обмена данными
 #define UBRRL_value (F_CPU/(BAUD*16))-1 //Согластно заданной скорости подсчитываем значение для регистра UBRR
 #define ADDRESS 1 //адрес в сети RS485
+#define PORT_1 
 
 enum command{
 	COMMAND_REPORT=0,
@@ -19,7 +33,8 @@ enum command{
 enum requestType{
 	REQUEST_EMPTY=0,
 	REQUEST_GET_DATA,
-	REQUEST_CLEAR
+	REQUEST_CLEAR,
+	REQUEST_CONFIG_PORTS
 };
 
 //ответы
@@ -27,7 +42,8 @@ enum answerType{
 	ANSWER_OK=0,
 	ANSWER_ERROR,
 	ANSWER_NO_DATA,
-	ANSWER_CLEARED
+	ANSWER_CLEARED,
+	ANSWER_PORTS_STATE
 };
 
 
@@ -43,7 +59,6 @@ enum eventType{
 
 struct minutePoint{
 	unsigned int value;
-	unsigned char event;
 };
 
 //103
@@ -83,7 +98,7 @@ int main(void)
 {
 	configuration();
     /* Replace with your application code */
-	prepareDataPacket();
+	//prepareDataPacket();
     while (1){
 		switch(currentCommand){
 			case(COMMAND_REPORT):{
@@ -180,7 +195,6 @@ ISR(TIMER0_OVF_vect){
 				minutesCounter=0;
 			}
 			currentMinute.value=currentValue;
-			currentMinute.event=EVENT_OK;
 			currentValue=0;
 			minutesArray[minutesCounter]=currentMinute;
 			minutesCounter++;
@@ -245,7 +259,7 @@ unsigned char CRC16(unsigned char *pcBlock, unsigned short len){
 //////////////////////////////////////////////////////////////////////
 void prepareDataPacket(){
 	TCCR0B&=(~(1<<CS00))&(~(1<<CS02));//останавливаем таймер
-	unsigned char size=minutesCounter*3+5;//количество минут+адрес+размер+CRC16+ответ
+	unsigned char size=minutesCounter*2+5;//количество минут+адрес+размер+CRC16+ответ
 	reportsArray[0]=size;//размер пакета
 	reportsArray[1]=ADDRESS;//вторым байтом всегда идет адрес
 	reportsArray[2]=(unsigned char)ANSWER_OK;
@@ -253,13 +267,14 @@ void prepareDataPacket(){
 	
 	int n=0;
 	for(n=0;n!=minutesCounter;n++){
-		int offset=n*3+4;
+		int offset=n*2+4;
 		reportsArray[offset]=(unsigned char)minutesArray[n].value;
-		reportsArray[offset+1]=(unsigned char)minutesArray[n].value>>8;
-		reportsArray[offset+2]=minutesArray[n].event;
+		int i=minutesArray[n].value;
+		i=i>>8;
+		reportsArray[offset+1]=(unsigned char)i;
 	}
 	unsigned char crc=CRC16(reportsArray,size-1);
-	reportsArray[4+n*3]=crc;
+	reportsArray[4+n*2]=crc;
 	//все обнуляем
 	USARTCounter=0;
 	reportsCounter=0;
