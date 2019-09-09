@@ -13,8 +13,14 @@
 5 - PD5
 6 - PD4
 7 - PD3
+Формат пакета конфигурации портов:
+0-размер
+1-адрес
+2-команда REQUEST_CONFIG_PORTS
+3-байт конфигурации (вход/выход)
+4-байт состояний портов
+5-CRC
 */
-
 
 
 
@@ -34,7 +40,7 @@ enum requestType{
 	REQUEST_EMPTY=0,
 	REQUEST_GET_DATA,
 	REQUEST_CLEAR,
-	REQUEST_CONFIG_PORTS
+	REQUEST_SET_PORTS
 };
 
 //ответы
@@ -63,7 +69,7 @@ struct minutePoint{
 
 //103
 #include <avr/io.h>
-#include <util/delay.h>
+//#include <util/delay.h>
 #include <avr/interrupt.h>
 
 void configurationGPIO();
@@ -74,10 +80,12 @@ void configurationINTS();
 void decodePacket();
 unsigned char CRC16(unsigned char *pcBlock, unsigned short len);
 void transmitReport();
-void perpareDataPacket();
+void prepareDataPacket();
 void prepareErrorPacket();//ответ-ошибка в случае несовпадения СRC
 void prepareNoDataPacket();
 void prepareClearedPacket();//ответ на требование стереть память
+void preparePortsStatePacket();
+void setPortsState(unsigned char configWord, unsigned char stateWord);
 
 unsigned char USARTInputArray[10]={0,0,0,0,0,0,0,0,0,0};
 unsigned char reportsArray[100]={10,20,30,40};
@@ -90,7 +98,7 @@ unsigned char minutesCounter=0;
 unsigned int currentValue=0;
 struct minutePoint currentMinute;
 int currentCommand=COMMAND_NO_COMMAND;
-unsigned char tmp=0;//для отладки
+//unsigned char tmp=0;//для отладки
 
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -98,7 +106,8 @@ int main(void)
 {
 	configuration();
     /* Replace with your application code */
-	//prepareDataPacket();
+	//setPortsState(0,0);//для отладки
+	//preparePortsStatePacket();//для отладки
     while (1){
 		switch(currentCommand){
 			case(COMMAND_REPORT):{
@@ -127,8 +136,8 @@ void configureUART(){
 }
 ////////////////////////////////////////////////////////////////////////
 void configurationGPIO(){
-	DDRB|=(1<<PORTB1)|(1<<PORTB2);
-	PORTB|=(1<<PORTB1);
+	//DDRB|=(1<<PORTB1)|(1<<PORTB2);
+	//PORTB|=(1<<PORTB1);
 	DDRC|=(1<<PORTC4);//переключение вход/выход преобразователя
 	PORTC|=(1<<PORTC4);
 	int t=0;
@@ -155,7 +164,6 @@ void configurationINTS(){
 }
 /////////////////////////////////////////////////////////////////////////////////
 ISR(USART_RX_vect){
-	PORTB^=(1<<PORTB1);
 	if(TCNT1>30){//если с момента последнего байта прошло больше 2мС, то это начало посылки
 		USARTCounter=0;
 	}
@@ -209,7 +217,6 @@ ISR(TIMER1_OVF_vect){
 ///////////////////////////////////////////////////////////////
 ISR(INT0_vect){
 	currentValue++;
-	//PORTB^=(1<<PORTB1);
 }
 /////////////////////////////////////////////////////////////////
 void decodePacket(){	
@@ -218,7 +225,7 @@ void decodePacket(){
 		unsigned char crc=CRC16(USARTInputArray,size-1);
 		if(crc==USARTInputArray[size-1]){
 			PORTB^=(1<<PORTB2);
-			switch(USARTInputArray[2]){//1-й байт - команда	
+			switch(USARTInputArray[2]){//3-й байт - команда	
 				case(REQUEST_GET_DATA):{		
 					if(minutesCounter!=0){
 						prepareDataPacket();
@@ -231,6 +238,11 @@ void decodePacket(){
 				case(REQUEST_CLEAR):{
 					minutesCounter=0;
 					prepareClearedPacket();
+					break;
+				}
+				case(REQUEST_SET_PORTS):{
+					setPortsState(USARTInputArray[3],USARTInputArray[4]);
+					preparePortsStatePacket();
 					break;
 				}
 				default:{
@@ -310,6 +322,47 @@ void prepareClearedPacket(){
 	reportsArray[3]=crc;
 	reportsCounter=0;
 }
+////////////////////////////////////////////////////////////////////////////
+void preparePortsStatePacket(){
+	unsigned char size=5;//размер+ответ+CRC
+	reportsArray[0]=size;//размер пакета
+	reportsArray[1]=ADDRESS;//вторым байтом всегда идет адрес
+	reportsArray[2]=(unsigned char)ANSWER_PORTS_STATE;
+	
+	unsigned char stateWord=0;
+	if((PIND&(1<<PORTD3))!=0){
+		stateWord|=(1<<0);
+	}
+	stateWord=stateWord<<1;
+	if((PIND&(1<<PORTD4))!=0){
+		stateWord|=(1<<0);
+	}
+	stateWord=stateWord<<1;
+	if((PIND&(1<<PORTD5))!=0){
+		stateWord|=(1<<0);
+	}
+	stateWord=stateWord<<1;
+	if((PIND&(1<<PORTD6))!=0){
+		stateWord|=(1<<0);
+	}
+	stateWord=stateWord<<1;
+	if((PIND&(1<<PORTD7))!=0){
+		stateWord|=(1<<0);
+	}
+	stateWord=stateWord<<1;
+	if((PINB&(1<<PORTB0))!=0){
+		stateWord|=(1<<0);
+	}
+	stateWord=stateWord<<1;
+	if((PINB&(1<<PORTB1))!=0){
+		stateWord|=(1<<0);
+	}
+	
+	reportsArray[3]=stateWord;
+	unsigned char crc=CRC16(reportsArray,size-1);
+	reportsArray[4]=crc;
+	reportsCounter=0;
+}
 /////////////////////////////////////////////////////////////////////////
 void transmitReport(){
 	while ( !( UCSR0A & (1<<UDRE0)) );
@@ -319,4 +372,118 @@ void transmitReport(){
 	UDR0=reportsArray[reportsCounter];
 	reportsCounter++;
 	currentCommand=COMMAND_NO_COMMAND;
+}
+//////////////////////////////////////////////////////////////////////////////////
+void setPortsState(unsigned char configWord, unsigned char stateWord){
+	//обнуляем конфигурацию
+	DDRB&=(~(1<<PORTB1)&(~(1<<PORTB0)));
+	DDRD&=(~(1<<PORTD7)&(~(1<<PORTD6))&(~(1<<PORTD5))&(~(1<<PORTD4))&(~(1<<PORTD3)));
+	
+	//устанавливаем конфигурацию портов
+	if((configWord&(1<<0))!=0){
+		DDRB|=(1<<PORTB1);	
+	}
+	else{
+		PORTB|=(1<<PORTB1);//подтягивающий резистор
+	}
+	
+	if((configWord&(1<<1))!=0){
+		DDRB|=(1<<PORTB0);
+	}
+	else{
+		PORTB|=(1<<PORTB0);
+	}
+	
+	if((configWord&(1<<2))!=0){
+		DDRD|=(1<<PORTD7);
+	}
+	else{
+		PORTD|=(1<<PORTD7);
+	}
+	
+	if((configWord&(1<<3))!=0){
+		DDRD|=(1<<PORTD6);
+	}
+	else{
+		PORTD|=(1<<PORTD6);
+	}
+	
+	if((configWord&(1<<4))!=0){
+		DDRD|=(1<<PORTD5);
+	}
+	else{
+		PORTD|=(1<<PORTD5);
+	}
+	
+	if((configWord&(1<<5))!=0){
+		DDRD|=(1<<PORTD4);
+	}
+	else{
+		PORTD|=(1<<PORTD4);
+	}
+	
+	if((configWord&(1<<6))!=0){
+		DDRD|=(1<<PORTD3);
+	}
+	else{
+		PORTD|=(1<<PORTD3);
+	}
+	
+	
+	if((DDRB&(1<<PORTB1))!=0){//если выход, то меняем состояние. Входы не трогаем
+		if((stateWord&(1<<0))!=0){
+			PORTB|=(1<<PORTB1);
+		}
+		else{
+			PORTB&=(~(1<<PORTB1));
+		}
+	}
+	if((DDRB&(1<<PORTB0))!=0){
+		if((stateWord&(1<<1))!=0){
+			PORTB|=(1<<PORTB0);
+		}
+		else{
+			PORTB&=(~(1<<PORTB0));
+		}
+	}
+	if((DDRD&(1<<PORTD7))!=0){
+		if((stateWord&(1<<2))!=0){
+			PORTD|=(1<<PORTD7);
+		}
+		else{
+			PORTD&=(~(1<<PORTD7));
+		}
+	}
+	if((DDRD&(1<<PORTD6))!=0){
+		if((stateWord&(1<<3))!=0){
+			PORTD|=(1<<PORTD6);
+		}
+		else{
+			PORTD&=(~(1<<PORTD6));
+		}
+	}
+	if((DDRD&(1<<PORTD5))!=0){
+		if((stateWord&(1<<4))!=0){
+			PORTD|=(1<<PORTD5);
+		}
+		else{
+			PORTD&=(~(1<<PORTD5));
+		}
+	}
+	if((DDRD&(1<<PORTD4))!=0){
+		if((stateWord&(1<<5))!=0){
+			PORTD|=(1<<PORTD4);
+		}
+		else{
+			PORTD&=(~(1<<PORTD4));
+		}
+	}
+	if((DDRD&(1<<PORTD3))!=0){
+		if((stateWord&(1<<6))!=0){
+			PORTD|=(1<<PORTD3);
+		}
+		else{
+			PORTD&=(~(1<<PORTD3));
+		}
+	}
 }
