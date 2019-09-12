@@ -107,7 +107,7 @@ int main(void)
 	configuration();
     /* Replace with your application code */
 	//setPortsState(0,0);//для отладки
-	//preparePortsStatePacket();//для отладки
+	preparePortsStatePacket();//для отладки
     while (1){
 		switch(currentCommand){
 			case(COMMAND_REPORT):{
